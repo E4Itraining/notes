@@ -1,0 +1,205 @@
+parfait — voici une **analyse approfondie, argumentée et actionnable** pour MyRenault, structurée en **Vision → Logique → Stratégie**, avec arbitrages, garde-fous, et plan d’exécution.
+
+---
+
+# 1) Vision — ce que MyRenault doit obtenir
+
+## 1.1 Finalité produit
+
+* **Expérience client mesurable** : disponibilité, latence perçue, fiabilité des services connectés.
+* **Lisibilité transverse** : des données techniques compréhensibles par Produit, Qualité, FinOps, Direction.
+* **Décisions pilotées par la donnée** : priorité des correctifs, roadmap, investissements.
+
+## 1.2 Principes de conception
+
+* **Un seul langage de vérité** (même SLO, mêmes chiffres) vu par Ops **et** Métiers.
+* **Time-to-Value > “pureté outillage”** : on privilégie ce qui donne de la valeur tout de suite, sans parier sur une roadmap incertaine.
+* **Soutenabilité** : coût d’observabilité maîtrisé dès la conception (ingest, stockage, requêtes).
+
+**Vision synthèse**
+
+> Construire une **observabilité unifiée, lisible et économique**, où **Dynatrace** garantit l’excellence opérationnelle et **Grafana** rend la valeur lisible aux métiers — le tout sans attendre l’intégration native de Grail côté plugin.
+
+---
+
+# 2) Logique — qui fait quoi, comment, sous quelles règles
+
+## 2.1 Rôles clairs
+
+* **Dynatrace (socle Ops)**
+
+  * Collecte APM/RUM/Traces/Synthetics, corrélations Davis AI.
+  * **Alerting & SLO** (source officielle du run).
+  * Exploration DQL côté Grail quand on est dans Dynatrace.
+* **Grafana (cockpit transverse)**
+
+  * Vues **multi-sources** (IT + télématique/OT + ERP/coûts).
+  * KPIs **Produit/Direction** (SLA client, % sessions impactées, coût/service).
+* **Proxy DQL (façade Grail)**
+
+  * Exécute DQL `execute/poll`, **normalise** en time series/table, **cache**, **sécurise**, **gouverne**.
+  * **Réversible** : si le plugin couvre DQL demain, on bascule derrière la même façade.
+
+## 2.2 Règles d’arbitrage (simple, utilisable)
+
+* **Besoin Run/Incident/SLO** → **Dynatrace** (métriques/SLO/alertes).
+* **Besoin transverse/Métier/FinOps** → **Grafana** (plugin pour Metrics v2 ; **proxy DQL** pour Grail).
+* **Indicateur récurrent** → le matérialiser en **métrique** (log→metric) pour réduire coût et variabilité.
+* **Exploration ad-hoc** → DQL dans Dynatrace (Notebook/Explorer) ; si besoin de diffusion → passer via le proxy.
+
+## 2.3 Gouvernance & sécurité
+
+* **Catalogue de 25–30 KPIs** max, chacun avec : définition, source (Dynatrace vs Proxy), owner, périodicité, TTL cible.
+* **Allow-list DQL** : modèles validés (variables contrôlées) pour éviter l’usine à requêtes.
+* **TTL différencié** : Ops 30–60 s ; Produit/Direction 2–5 min.
+* **Protection des données** : pas de PII en clair dans les panels ; masquage côté DQL si nécessaire ; contrôle d’accès (Bearer/mTLS).
+
+## 2.4 FinOps — logique de coûts
+
+* **Limiter à l’ingest** (bruit/debug) + **retention tierisée** (fin vs agrégée).
+* **Log→Metric** pour signaux durables (errors/min, p95…), lus via Metrics API (plugin).
+* **Cache proxy** pour mutualiser les hits DQL (10 panels ≠ 10 requêtes).
+* **Budgets** par domaine (requêtes/min, taille/réponse, temps d’exécution).
+
+---
+
+# 3) Stratégie — options, arbitrage, plan
+
+## 3.1 Deux options réalistes
+
+### Option A — Tout Dynatrace
+
+**Avantages**
+
+* Un seul outil, run unifié, simplicité d’exploitation.
+  **Limites**
+* **Lisibilité métier** plus faible (cockpit moins transverse).
+* **Coûts** potentiellement plus élevés (gros volumes logs/télématique).
+* **Lock-in** fort ; agilité moindre pour croiser ERP/OT/FinOps.
+
+> **Acceptable si** périmètre quasi exclusivement Ops et si l’entreprise assume le verrouillage outillage.
+
+### Option B — **Hybridation Dynatrace ↔ Grafana** (recommandée)
+
+**Avantages**
+
+* Ops performants (Dynatrace), **pilotage métier/FinOps** crédible (Grafana).
+* **Immédiateté Grail → Dash** via **proxy**, sans attendre le plugin.
+* **Réversibilité** (façade proxy), **multi-sources** natif.
+  **Exigences**
+* Gouvernance (catalogue KPI, allow-list DQL), un peu d’Ops pour le proxy.
+
+> **Pertinent pour MyRenault** : produit connecté, parties prenantes multiples, besoin de parler “valeur” autant que “technique”.
+
+**Arbitrage clair :** MyRenault → **Option B**.
+
+---
+
+## 3.2 Plan d’exécution (90 jours)
+
+### Phase 1 — **Cadrage & Quick wins** (Sem. 0–2)
+
+* Valider **15–25 KPIs** prioritaires (Ops + Métier + Direction).
+* Déployer **proxy DQL minimal** (auth, cache 30–60 s).
+* Mettre à jour panels Grafana :
+
+  * Plugin Dynatrace pour **Metrics/Problems**,
+  * **Infinity** pour DQL via proxy (deux panels pilotes : timeseries erreurs/host, table top endpoints p95).
+* Définir **SLO proxy** (p95 < 1,5 s ; erreurs < 1 %).
+
+### Phase 2 — **Industrialisation** (Sem. 3–6)
+
+* Passer proxy en **prod** (Redis, 2 réplicas, rate-limit/mTLS, /metrics).
+* **Log→Metric** pour 6–10 indicateurs récurrents (réduire coût DQL).
+* Provisionner **trois types de dashboards** : Ops (miroir SLO), Produit (usage/dispo), Direction (SLA+FinOps).
+* Créer **allow-list** de DQL (15 modèles), variables validées (service, host, zone).
+
+### Phase 3 — **Run & Pilotage** (Sem. 7–12)
+
+* **FinOps board** : coût observabilité par domaine/service/1 000 véhicules.
+* Revue PDCA mensuelle : panels non lus → retrait ; DQL lourds → optimiser/agréger.
+* Préparer **plan de bascule** si plugin supporte DQL demain (façade proxy conservée).
+
+---
+
+## 3.3 Indicateurs de succès (objectifs cibles)
+
+* **MTTR** : -25/-35 % (Dynatrace corrélations + SLO propres).
+* **Coût d’observabilité / 1 000 véhicules** : -15/-30 %.
+* **Adoption métiers (dashboard hebdo)** : > 70 %.
+* **Hit-ratio cache proxy** : > 70 %.
+* **Taux d’alertes pertinentes** (peu de faux positifs) : > 90 %.
+
+---
+
+# 4) Spécifique MyRenault — SLIs/SLOs, KPIs & modèles
+
+## 4.1 SLIs/SLOs (exemples concrets)
+
+* **Disponibilité service** (API par domaine) : SLI = 1 − (5xx\_rate), SLO mensuel ≥ 99,9 %.
+* **Latence perçue** (P95 end-to-end mobile → backend) : SLO p95 ≤ X ms 95 % du temps.
+* **Taux de sessions impactées** (RUM mobile) : SLO ≤ Y %.
+* **Succès OTA / télématique critique** : SLO ≥ Z %.
+* **Data freshness** (lag entre télématique et backend) : SLO ≤ N minutes.
+
+**Alerte** : toujours **Dynatrace** (SLO natifs + Davis AI).
+**Visualisation transverse** : Grafana (plugin + proxy).
+
+## 4.2 KPIs Direction/Produit (Grafana)
+
+* **SLA client** par service/zone (carte/heatmap).
+* **Coût observabilité/service** (tendance, coût/1 000 véhicules).
+* **% fonctionnalités indisponibles > X min** (corrélé aux incidents).
+* **Top 10 causes incidents** (sur 30 jours) – extrait DQL agrégé.
+
+## 4.3 Patrons DQL (à templétiser)
+
+* **Erreurs/host (1m)**
+  `fetch logs | filter loglevel=="ERROR" | summarize count(), by:[bin(timestamp,1m), dt.entity.host] | sort timestamp asc`
+* **p95 endpoint**
+  `fetch logs | filter service.name=="${service}" | summarize p95=percentile(duration_ms,95), by:endpoint | sort p95 desc | limit 50`
+* **Sessions impactées**
+  `fetch logs | filter app.name=="my-renault" | summarize impacted=avg(is_impacted), by:[bin(timestamp,5m), country]`
+
+**Règles d’or DQL** : toujours **bin()** ou `make_timeseries`, limiter colonnes/lignes, filtrer tôt.
+
+---
+
+# 5) Risques & garde-fous
+
+| Risque                                    | Impact                     | Parade                                                            |
+| ----------------------------------------- | -------------------------- | ----------------------------------------------------------------- |
+| **Plugin ne couvre pas Grail** rapidement | Blocage features           | **Proxy DQL** (façade réversible)                                 |
+| **Usine à dashboards Grafana**            | Incompréhension, coûts     | **Catalogue KPI**, allow-list DQL, TTL, revue trimestrielle       |
+| **Coûts Grail** (ingest/query)            | Dérapage budgétaire        | Filtrage ingest, **log→metric**, cache proxy, budgets par domaine |
+| **429/quotas DQL**                        | Pertes de données, latence | Cache court, rate-limit, agrégations, alerte sur 429              |
+| **PII / conformité**                      | Risque RGPD                | Masquage DQL, RBAC, pas de PII en clair dans panels               |
+| **Dépendance proxy**                      | Point unique               | 2 réplicas, health/metrics, runbook, tests intégration            |
+
+---
+
+# 6) Organisation & operating model
+
+* **KPI Council** (IT Ops + Produit + FinOps) : valide définitions, arbitre ajouts, surveille coûts.
+* **Owners** par KPI : garantissent la qualité, le sens, la source.
+* **Champions** Grafana/Dynatrace dans chaque domaine.
+* **Runbooks** partagés : incident tiers-1 (Dynatrace), pilotage (Grafana).
+
+---
+
+# 7) No-regrets moves (à faire quoi qu’il arrive)
+
+1. **Standardiser les SLO** dans Dynatrace et former les équipes à Davis AI.
+2. **Déployer le proxy DQL** minimal (auth+cache) ; brancher 2–3 panels clés.
+3. **Lancer la transformation log→metric** sur 5–10 signaux récurrents.
+4. **Établir le catalogue KPI** (≤ 30) et purger les dashboards non lus.
+5. **Mettre en place le FinOps board** (coûts/ service / 1 000 véhicules).
+
+---
+
+## Recommandation finale (claire)
+
+* **Choix stratégique : Hybridation Dynatrace ↔ Grafana**, avec **proxy DQL** pour le gap Grail.
+* **Dynatrace** garde la **vérité Ops (alerte/SLO)** ; **Grafana** donne la **vérité transverse** (métier/FinOps).
+* **Mesurer & gouverner** (KPI Council, catalogues, TTL, budget) pour éviter l’usine à gaz et tenir la ligne de coûts.
+
